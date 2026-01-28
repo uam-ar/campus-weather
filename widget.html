@@ -1,0 +1,375 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Campus Weather</title>
+
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: transparent; }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 18px;
+      padding: 16px;
+      max-width: 920px;
+      background: #f5f4ef;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .pill {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.12);
+      opacity: .9;
+      white-space: nowrap;
+    }
+
+    .muted { opacity: .75; font-size: 12px; margin-top: 10px; }
+
+    .nowWrap{
+      margin-top: 12px;
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+
+    .nowBox{
+      flex: 1 1 360px;
+      border: 1px solid rgba(0,0,0,.10);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,.35);
+    }
+
+    .nowLine { font-size: 16px; font-weight: 800; margin-bottom: 4px; }
+    .subLine { font-size: 13px; opacity: .9; }
+    .icon { font-size: 22px; margin-right: 8px; vertical-align: -2px; }
+
+    .comfort{
+      margin-top: 8px;
+      font-size: 13px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(0,0,0,.10);
+      background: rgba(0,0,0,.03);
+      font-weight: 650;
+    }
+
+    .hourlyBox{
+      flex: 1 1 360px;
+      border: 1px solid rgba(0,0,0,.10);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,.35);
+    }
+
+    .boxTitle{
+      font-weight: 900;
+      font-size: 13px;
+      opacity: .85;
+      margin-bottom: 8px;
+      display:flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+
+    canvas { display:block; width: 100%; height: 110px; }
+
+    .sectionTitle {
+      font-weight: 900;
+      margin-top: 14px;
+      margin-bottom: 8px;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid rgba(0,0,0,.08); }
+    th { text-align: left; font-weight: 800; opacity: .9; }
+    td.r, th.r { text-align: right; }
+
+    .condCell { display:flex; align-items:center; gap: 8px; }
+    .smallIcon { font-size: 16px; }
+
+    /* Precip bar */
+    .precipWrap{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    .bar{
+      width: 120px;
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.10);
+      background: rgba(0,0,0,.04);
+      overflow: hidden;
+    }
+    .fill{
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: rgba(0,0,0,.50);
+    }
+    .pct{ width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Keep your theme stable: DO NOT auto-change background */
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <div class="title">
+      <div>Campus Weather</div>
+      <div id="locPill" class="pill">—</div>
+    </div>
+
+    <div id="status" class="muted">Loading…</div>
+
+    <div class="nowWrap">
+      <div class="nowBox">
+        <div id="current"></div>
+        <div id="comfort" class="comfort" style="display:none;"></div>
+      </div>
+
+      <div class="hourlyBox">
+        <div class="boxTitle">
+          <span>Next 24 hours temperature</span>
+          <span id="hourlyRange" style="opacity:.75; font-size:12px;"></span>
+        </div>
+        <canvas id="hourlyCanvas" width="520" height="120"></canvas>
+      </div>
+    </div>
+
+    <div class="sectionTitle">7-Day Forecast</div>
+    <div id="forecast"></div>
+
+    <div id="updated" class="muted"></div>
+    <div class="muted" style="margin-top:6px;">
+      Note: Values may differ from consumer weather apps because this widget uses numerical model outputs rather than proprietary station-blended nowcasts.
+    </div>
+  </div>
+
+<script>
+(function(){
+  var WEATHER_JSON_URL = "./weather.json";
+
+  function cToF(c){ return (c * 9 / 5) + 32; }
+  function safe(v){ return (v===null || v===undefined) ? "—" : v; }
+
+  function icon(code){
+    if (code === 0) return "☀️";
+    if (code === 1 || code === 2) return "🌤️";
+    if (code === 3) return "☁️";
+    if (code >= 45 && code <= 48) return "🌫️";
+    if (code >= 51 && code <= 57) return "🌦️";
+    if (code >= 61 && code <= 67) return "🌧️";
+    if (code >= 71 && code <= 77) return "❄️";
+    if (code >= 80 && code <= 82) return "🌦️";
+    if (code >= 95) return "⛈️";
+    return "🌥️";
+  }
+
+  function label(code){
+    if (code === 0) return "Clear";
+    if (code === 1 || code === 2) return "Mostly clear";
+    if (code === 3) return "Cloudy";
+    if (code >= 45 && code <= 48) return "Fog";
+    if (code >= 51 && code <= 57) return "Drizzle";
+    if (code >= 61 && code <= 67) return "Rain";
+    if (code >= 71 && code <= 77) return "Snow";
+    if (code >= 80 && code <= 82) return "Showers";
+    if (code >= 95) return "Thunderstorm";
+    return "Mixed";
+  }
+
+  function comfortText(feelsF, windKmh){
+    // Simple, readable: adjust thresholds to your taste
+    if (feelsF == null) return null;
+
+    var w = (windKmh == null) ? 0 : windKmh;
+
+    if (feelsF >= 80) return "Comfort index: 🥵 Hot — stay hydrated.";
+    if (feelsF >= 65 && feelsF < 80) return "Comfort index: 🟢 Comfortable.";
+    if (feelsF >= 50 && feelsF < 65) return "Comfort index: 🧥 Cool — light jacket recommended.";
+    if (feelsF >= 35 && feelsF < 50) return "Comfort index: 🥶 Cold — dress warm.";
+    // Very cold + wind makes it harsher
+    if (feelsF < 35 && w >= 15) return "Comfort index: 🚨 Cold stress risk (windy).";
+    return "Comfort index: 🧊 Very cold — limit time outside.";
+  }
+
+  function precipColor(p){
+    // 0–20 gray, 20–50 medium, >50 darker
+    if (p == null) return "rgba(0,0,0,.25)";
+    if (p < 20) return "rgba(0,0,0,.22)";
+    if (p < 50) return "rgba(0,0,0,.40)";
+    return "rgba(0,0,0,.60)";
+  }
+
+  function drawHourlyChart(canvas, points){
+    // points: [{time, temp_c}]
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    if (!points || points.length < 2) {
+      ctx.font = "12px system-ui, Arial";
+      ctx.fillText("Hourly data unavailable", 10, 20);
+      return;
+    }
+
+    // Convert to F for display
+    var tempsF = points.map(function(p){
+      return (p.temp_c==null) ? null : cToF(p.temp_c);
+    });
+
+    var min = Infinity, max = -Infinity;
+    tempsF.forEach(function(v){
+      if (v == null) return;
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    });
+    if (!isFinite(min) || !isFinite(max)) return;
+    if (min === max) { min -= 1; max += 1; }
+
+    var padL = 28, padR = 10, padT = 12, padB = 20;
+    function x(i){ return padL + (i/(tempsF.length-1)) * (w - padL - padR); }
+    function y(v){ return padT + (1 - (v-min)/(max-min)) * (h - padT - padB); }
+
+    // Baseline grid
+    ctx.strokeStyle = "rgba(0,0,0,.10)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, h-padB);
+    ctx.lineTo(w-padR, h-padB);
+    ctx.stroke();
+
+    // Line
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    tempsF.forEach(function(v,i){
+      if (v == null) return;
+      var px = x(i), py = y(v);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    // Points (more visible)
+    tempsF.forEach(function(v,i){
+      if (v == null) return;
+      ctx.beginPath();
+      ctx.arc(x(i), y(v), 4, 0, Math.PI*2);
+      ctx.fillStyle = "#111";
+      ctx.fill();
+    });
+
+    // Min/Max labels
+    ctx.fillStyle = "rgba(0,0,0,.70)";
+    ctx.font = "12px system-ui, Arial";
+    ctx.fillText(Math.round(max) + "°F", 6, padT+10);
+    ctx.fillText(Math.round(min) + "°F", 6, h-padB);
+
+    // X labels: show every 6 hours
+    ctx.fillStyle = "rgba(0,0,0,.55)";
+    ctx.font = "11px system-ui, Arial";
+    for (var i=0; i<tempsF.length; i+=6){
+      var t = points[i].time || "";
+      var hh = t.split("T")[1] || "";
+      hh = hh.slice(0,5);
+      ctx.fillText(hh, x(i)-10, h-6);
+    }
+  }
+
+  fetch(WEATHER_JSON_URL, {cache:"no-store"})
+    .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(data){
+      document.getElementById("status").textContent = "";
+
+      var cur = data.current || {};
+      var meta = data.meta || {};
+      var daily = data.daily || [];
+      var hourly = (data.hourly && data.hourly.next24) ? data.hourly.next24 : [];
+
+      // Location pill
+      document.getElementById("locPill").textContent = meta.place_name || "—";
+
+      // Current
+      var tC = cur.temperature_c;
+      var tF = (tC==null) ? null : cToF(tC);
+      var feelsC = cur.feels_like_c;
+      var feelsF = (feelsC==null) ? null : cToF(feelsC);
+
+      document.getElementById("current").innerHTML =
+        "<div class='nowLine'><span class='icon'>" + icon(cur.weather_code) + "</span>" +
+        "<strong>Now:</strong> " + safe(tF==null?null:tF.toFixed(1)) + "°F" +
+        " (" + safe(tC==null?null:tC.toFixed(1)) + "°C)" +
+        " • " + label(cur.weather_code) + "</div>" +
+        "<div class='subLine'>Humidity: " + safe(cur.humidity_pct) + "% • " +
+        "Wind: " + safe(cur.wind_speed_kmh) + " km/h" +
+        " • Feels like: " + safe(feelsF==null?null:feelsF.toFixed(1)) + "°F</div>";
+
+      // Comfort index
+      var cText = comfortText(feelsF, cur.wind_speed_kmh);
+      if (cText){
+        var cEl = document.getElementById("comfort");
+        cEl.textContent = cText;
+        cEl.style.display = "block";
+      }
+
+      // Hourly chart
+      var canvas = document.getElementById("hourlyCanvas");
+      drawHourlyChart(canvas, hourly);
+
+      if (hourly && hourly.length){
+        var start = (hourly[0].time || "").replace("T"," ").slice(0,16);
+        var end = (hourly[hourly.length-1].time || "").replace("T"," ").slice(0,16);
+        document.getElementById("hourlyRange").textContent = start + " → " + end;
+      }
+
+      // Forecast with precip bars
+      var rows = daily.slice(0,7).map(function(d){
+        var maxF = (d.tmax_c==null)?null:cToF(d.tmax_c);
+        var minF = (d.tmin_c==null)?null:cToF(d.tmin_c);
+        var p = d.precip_prob_pct;
+        var w = (p==null) ? 0 : Math.max(0, Math.min(100, p));
+
+        return "<tr>" +
+          "<td>"+safe(d.date)+"</td>" +
+          "<td><div class='condCell'><span class='smallIcon'>"+icon(d.weather_code)+"</span><span>"+label(d.weather_code)+"</span></div></td>" +
+          "<td class='r'>"+safe(maxF==null?null:maxF.toFixed(0))+" / "+safe(minF==null?null:minF.toFixed(0))+"°F</td>" +
+          "<td class='r'>" +
+            "<div class='precipWrap'>" +
+              "<div class='bar'><div class='fill' style='width:"+w+"%; background:"+precipColor(p)+";'></div></div>" +
+              "<div class='pct'>"+safe(p)+"%</div>" +
+            "</div>" +
+          "</td>" +
+        "</tr>";
+      }).join("");
+
+      document.getElementById("forecast").innerHTML =
+        "<table><thead><tr>" +
+          "<th>Date</th><th>Condition</th><th class='r'>High / Low</th><th class='r'>Precip</th>" +
+        "</tr></thead><tbody>"+rows+"</tbody></table>";
+
+      document.getElementById("updated").textContent =
+        "Updated (UTC): " + safe(meta.generated_utc) + " • Source: " + safe(meta.source);
+    })
+    .catch(function(e){
+      document.getElementById("status").textContent = "Weather unavailable ("+e.message+").";
+    });
+})();
+</script>
+</body>
+</html>
